@@ -1,0 +1,148 @@
+# Cloud Run service configuration
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: fastapi-cloudrun-kit
+  annotations:
+    # Cloud Run annotations
+    run.googleapis.com/ingress: all
+    run.googleapis.com/execution-environment: gen2
+    run.googleapis.com/cpu-throttling: "false"
+    
+    # VPC settings (uncomment if using VPC connector)
+    # run.googleapis.com/vpc-access-connector: projects/PROJECT_ID/locations/REGION/connectors/CONNECTOR_NAME
+    # run.googleapis.com/vpc-access-egress: private-ranges-only
+    
+    # Binary Authorization (uncomment for enhanced security)
+    # run.googleapis.com/binary-authorization-breakglass: JUSTIFICATION
+    
+    # Description
+    run.googleapis.com/description: "FastAPI application with Firebase integration"
+    
+spec:
+  template:
+    metadata:
+      annotations:
+        # Scaling settings
+        autoscaling.knative.dev/minScale: "1"
+        autoscaling.knative.dev/maxScale: "10"
+        
+        # CPU settings
+        run.googleapis.com/cpu-throttling: "false"
+        
+        # Startup probe
+        run.googleapis.com/startup-cpu-boost: "true"
+        
+        # Session affinity (for sticky sessions if needed)
+        # run.googleapis.com/sessionAffinity: "true"
+        
+    spec:
+      # Service account
+      serviceAccountName: cloud-run-service@PROJECT_ID.iam.gserviceaccount.com
+      
+      # Container timeout
+      timeoutSeconds: 300
+      
+      # Container concurrency
+      containerConcurrency: 100
+      
+      containers:
+      - name: fastapi-cloudrun-kit
+        image: gcr.io/PROJECT_ID/fastapi-cloudrun-kit:latest
+        
+        # Resource limits
+        resources:
+          limits:
+            cpu: "1000m"
+            memory: "1Gi"
+          requests:
+            cpu: "1000m"
+            memory: "1Gi"
+        
+        # Container port
+        ports:
+        - name: http1
+          containerPort: 8000
+        
+        # Environment variables
+        env:
+        - name: ENVIRONMENT
+          value: "production"
+        - name: FIREBASE_PROJECT_ID
+          value: "PROJECT_ID"
+        - name: GOOGLE_CLOUD_PROJECT
+          value: "PROJECT_ID"
+        - name: HOST
+          value: "0.0.0.0"
+        - name: PORT
+          value: "8000"
+        - name: RELOAD
+          value: "false"
+        - name: DEBUG
+          value: "false"
+        - name: LOG_LEVEL
+          value: "INFO"
+        - name: LOG_FORMAT
+          value: "json"
+        
+        # Secrets from Secret Manager
+        - name: SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: secret-key
+              key: latest
+        
+        # Optional: Firebase service account key
+        # - name: GOOGLE_APPLICATION_CREDENTIALS
+        #   value: "/etc/firebase/key.json"
+        
+        # Health checks
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+          successThreshold: 1
+        
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+          successThreshold: 1
+        
+        # Startup probe (Cloud Run gen2 only)
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 0
+          periodSeconds: 10
+          timeoutSeconds: 10
+          failureThreshold: 12
+          successThreshold: 1
+        
+        # Volume mounts (if using Firebase service account key file)
+        # volumeMounts:
+        # - name: firebase-key
+        #   mountPath: /etc/firebase
+        #   readOnly: true
+      
+      # Volumes (if using Firebase service account key file)
+      # volumes:
+      # - name: firebase-key
+      #   secret:
+      #     secretName: firebase-service-account
+      #     items:
+      #     - key: key.json
+      #       path: key.json
+      
+  traffic:
+  - percent: 100
+    latestRevision: true

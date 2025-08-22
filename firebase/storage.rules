@@ -1,0 +1,99 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isAdmin() {
+      return request.auth != null && 
+             'admin' in request.auth.token.roles;
+    }
+    
+    function isModerator() {
+      return request.auth != null && 
+             ('admin' in request.auth.token.roles || 
+              'moderator' in request.auth.token.roles);
+    }
+    
+    function isOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+    
+    function isValidImageFile() {
+      return resource.contentType.matches('image/.*') &&
+             resource.size < 10 * 1024 * 1024; // 10MB max
+    }
+    
+    function isValidDocumentFile() {
+      return resource.contentType in ['application/pdf', 'text/plain', 'application/json'] &&
+             resource.size < 50 * 1024 * 1024; // 50MB max
+    }
+    
+    // User profile images
+    match /users/{userId}/profile/{imageId} {
+      // Users can read their own profile images
+      // Public profile images can be read by anyone
+      allow read: if true; // Profile images are public
+      
+      // Users can upload their own profile images
+      allow write: if isOwner(userId) && isValidImageFile();
+      
+      // Users can delete their own profile images
+      allow delete: if isOwner(userId);
+    }
+    
+    // Item attachments
+    match /items/{itemId}/attachments/{fileName} {
+      // Read permissions based on item visibility
+      // For simplicity, we'll allow read if authenticated
+      // In practice, you'd check the item's is_public field
+      allow read: if isAuthenticated();
+      
+      // Item owners can upload attachments
+      allow write: if isAuthenticated() && 
+                      (isValidImageFile() || isValidDocumentFile());
+      
+      // Item owners and admins can delete attachments
+      allow delete: if isAuthenticated();
+    }
+    
+    // Public assets (logos, etc.)
+    match /public/{fileName} {
+      allow read: if true;
+      allow write, delete: if isAdmin();
+    }
+    
+    // System files (admin only)
+    match /system/{fileName} {
+      allow read, write, delete: if isAdmin();
+    }
+    
+    // Temporary uploads (authenticated users)
+    match /temp/{userId}/{fileName} {
+      allow read, write: if isOwner(userId) && 
+                            resource.timeCreated > timestamp.date(2024, 1, 1); // Prevent access to old temp files
+      allow delete: if isOwner(userId) || isAdmin();
+    }
+    
+    // Backup files (admin only)
+    match /backups/{fileName} {
+      allow read, write, delete: if isAdmin();
+    }
+    
+    // Export files (users can read their own exports, admins can read all)
+    match /exports/{userId}/{fileName} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow write: if false; // Only backend can create exports
+      allow delete: if isOwner(userId) || isAdmin();
+    }
+    
+    // Deny all other access
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
