@@ -7,7 +7,7 @@ This Terraform setup deploys a containerized FastAPI application to Google Cloud
 1.  **Install Tools**:
     *   [Terraform](https://learn.hashicorp.com/tutorials/terraform/install-cli) (version >= 1.13)
     *   [Google Cloud SDK](https://cloud.google.com/sdk/docs/install) (`gcloud`)
-
+dekh 
 2.  **GCP Project**:
     *   Create a new Google Cloud Project or use an existing one.
     *   Ensure **billing is enabled** for your project.
