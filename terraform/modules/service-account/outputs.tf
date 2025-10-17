@@ -10,5 +10,5 @@ output "id" {
 
 output "member" {
   description = "The IAM member identifier for the service account."
-  value       = google_service_account.service_account.member
+  value       = "serviceAccount:${google_service_account.service_account.email}"
 }
