@@ -97,6 +97,10 @@ if [ -z "$TF_COMMAND" ]; then
     region=${region:-us-central1}
 
     echo "Copying 'example.tfvars' to '$TFVARS_FILE' and populating with your values..."
+    if [ ! -f "example.tfvars" ]; then
+      echo "ERROR: example.tfvars not found in the terraform directory."
+      exit 1
+    fi
     cp example.tfvars "$TFVARS_FILE"
     sed -i "s/your-gcp-project-id/$project_id/g" "$TFVARS_FILE"
     # Note: This simple sed might not work for all image URL formats, but covers the example.
