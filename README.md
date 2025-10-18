@@ -102,31 +102,40 @@ fastapi-cloudrun-kit/
 ├── app/
 │   ├── main.py                 # FastAPI application
 │   ├── api/
-│   │   ├── deps.py            # Dependencies and auth
-│   │   └── v1/                # API version 1
-│   │       ├── auth.py        # Authentication endpoints
-│   │       ├── users.py       # User management
-│   │       └── items.py       # Item CRUD operations
+│   │   ├── deps.py             # Dependencies and auth
+│   │   └── v1/                 # API version 1
+│   │       ├── auth.py         # Authentication endpoints
+│   │       ├── users.py        # User management
+│   │       └── items.py        # Item CRUD operations
 │   ├── core/
-│   │   ├── config.py          # Settings and configuration
-│   │   ├── security.py        # Security utilities
-│   │   └── logging.py         # Logging configuration
-│   ├── models/                # Pydantic data models
-│   ├── schemas/               # API request/response schemas
-│   ├── services/              # Business logic services
-│   └── utils/                 # Utility functions
+│   │   ├── config.py           # Settings and configuration
+│   │   ├── security.py         # Security utilities
+│   │   └── logging.py          # Logging configuration
+│   ├── models/                 # Pydantic data models
+│   ├── schemas/                # API request/response schemas
+│   ├── services/               # Business logic services
+│   └── utils/                  # Utility functions
 ├── firebase/
-│   ├── firebase.json          # Firebase configuration
-│   ├── firestore.rules        # Firestore security rules
-│   ├── firestore.indexes.json # Database indexes
-│   └── storage.rules          # Storage security rules
-├── tests/                     # Test suite
-├── scripts/                   # Development scripts
-├── deploy/                    # Deployment configurations
-├── docker-compose.yml         # Local development environment
-├── Dockerfile                 # Production container
-├── cloudbuild.yaml           # Google Cloud Build
-└── pyproject.toml            # UV configuration
+│   ├── firebase.json           # Firebase configuration
+│   ├── firestore.rules         # Firestore security rules
+│   ├── firestore.indexes.json  # Database indexes
+│   └── storage.rules           # Storage security rules
+├── tests/                      # Test suite
+├── scripts/                    # Development scripts
+├── deploy/                     # Deployment configurations
+├── terraform/
+│   ├── main.tf                 # Core infrastructure resources
+│   ├── variables.tf            # Input variables for infrastructure
+│   ├── outputs.tf              # Deployment outputs
+│   ├── backend.tf              # Remote state configuration
+│   ├── providers.tf            # Provider definitions
+│   ├── example.tfvars          # Sample variable inputs
+│   └── scripts/
+│       └── tf.sh               # Helper Terraform commands
+├── docker-compose.yml          # Local development environment
+├── Dockerfile                  # Production container
+├── cloudbuild.yaml             # Google Cloud Build
+└── pyproject.toml              # UV configuration
 ```
 
 ## Development
