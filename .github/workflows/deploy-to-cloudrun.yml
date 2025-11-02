@@ -1,0 +1,141 @@
+name: Build and Deploy to Cloud Run
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  REGION: ${{ secrets.CLOUD_RUN_REGION }}
+  SERVICE: ${{ secrets.CLOUD_RUN_SERVICE_NAME }}
+  SERVICE_ACCOUNT: ${{ secrets.CLOUD_RUN_SERVICE_ACCOUNT }}
+  WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+  REPOSITORY: ${{ secrets.ARTIFACT_REGISTRY_REPOSITORY }}
+  IMAGE_NAME: ${{ secrets.ARTIFACT_REGISTRY_IMAGE_NAME }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@f112390a2df9932162083945e46d439060d66ec2 # v2.1.0
+        with:
+          workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.SERVICE_ACCOUNT }}
+          token_format: 'access_token'
+          access_token_scopes: 'https://www.googleapis.com/auth/cloud-platform'
+
+      - name: Prepare image metadata
+        id: prep
+        run: |
+          if [ -z "${REPOSITORY}" ]; then
+            echo "REPOSITORY secret must be set (e.g. asia-south1-docker.pkg.dev/project/repository)." >&2
+            exit 1
+          fi
+          REGISTRY_HOST="${REPOSITORY%%/*}"
+          TRIMMED_REPO="${REPOSITORY%/}"
+          DERIVED_IMAGE_NAME="${IMAGE_NAME:-${SERVICE}}"
+          if [ -z "${DERIVED_IMAGE_NAME}" ]; then
+            echo "Either IMAGE_NAME or SERVICE must be provided so the image can be derived." >&2
+            exit 1
+          fi
+          case "${TRIMMED_REPO}" in
+            */${DERIVED_IMAGE_NAME}) IMAGE_PATH="${TRIMMED_REPO}" ;;
+            *) IMAGE_PATH="${TRIMMED_REPO}/${DERIVED_IMAGE_NAME}" ;;
+          esac
+          SERVICE_NAME="${SERVICE:-${DERIVED_IMAGE_NAME}}"
+          if [ -z "${SERVICE_NAME}" ]; then
+            echo "Unable to determine service name." >&2
+            exit 1
+          fi
+          IMAGE="${IMAGE_PATH}:${GITHUB_SHA}"
+          echo "registry_host=${REGISTRY_HOST}" >> "$GITHUB_OUTPUT"
+          echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
+          echo "image_path=${IMAGE_PATH}" >> "$GITHUB_OUTPUT"
+          echo "service=${SERVICE_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Docker Auth
+        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.3.0
+        with:
+          registry: ${{ steps.prep.outputs.registry_host }}
+          username: oauth2accesstoken
+          password: ${{ steps.auth.outputs.access_token }}
+
+      - name: Build and Push Container
+        run: |
+          docker build --tag "${{ steps.prep.outputs.image }}" .
+          docker push "${{ steps.prep.outputs.image }}"
+
+      - name: Update rolling tags
+        run: |
+          set -euo pipefail
+          IMAGE="${{ steps.prep.outputs.image }}"
+          IMAGE_PATH="${{ steps.prep.outputs.image_path }}"
+          if [ -z "${IMAGE_PATH}" ]; then
+            echo "Image path not available from metadata step." >&2
+            exit 1
+          fi
+          DIGEST_REF=$(docker image inspect "${IMAGE}" --format='{{index .RepoDigests 0}}' 2>/dev/null || true)
+          if [ -z "${DIGEST_REF}" ]; then
+            echo "Unable to determine digest for ${IMAGE}. Ensure the image was pushed successfully." >&2
+            exit 1
+          fi
+          NEW_DIGEST="${DIGEST_REF#*@}"
+          CURRENT_PREVIOUS_DIGEST=$(gcloud artifacts docker tags list "${IMAGE_PATH}" --filter="tag=previous" --format="value(digest)" 2>/dev/null || true)
+          CURRENT_LATEST_DIGEST=$(gcloud artifacts docker tags list "${IMAGE_PATH}" --filter="tag=latest" --format="value(digest)" 2>/dev/null || true)
+          if [ -n "${CURRENT_PREVIOUS_DIGEST}" ]; then
+            gcloud artifacts docker tags add "${IMAGE_PATH}@${CURRENT_PREVIOUS_DIGEST}" "${IMAGE_PATH}:previous-1" --quiet
+          fi
+          if [ -n "${CURRENT_LATEST_DIGEST}" ]; then
+            gcloud artifacts docker tags add "${IMAGE_PATH}@${CURRENT_LATEST_DIGEST}" "${IMAGE_PATH}:previous" --quiet
+          fi
+          gcloud artifacts docker tags add "${IMAGE_PATH}@${NEW_DIGEST}" "${IMAGE_PATH}:latest" --quiet
+
+      - name: Prune old images
+        run: |
+          set -euo pipefail
+          IMAGE_PATH="${{ steps.prep.outputs.image_path }}"
+          if [ -z "${IMAGE_PATH}" ]; then
+            exit 0
+          fi
+          mapfile -t DIGESTS < <(gcloud artifacts docker images list "${IMAGE_PATH}" --sort-by=~updateTime --format="value(version)" 2>/dev/null || true)
+          if [ "${#DIGESTS[@]}" -le 3 ]; then
+            exit 0
+          fi
+          for ((i=3; i<${#DIGESTS[@]}; i++)); do
+            DIGEST="${DIGESTS[$i]}"
+            if [ -n "${DIGEST}" ]; then
+              gcloud artifacts docker images delete "${IMAGE_PATH}@${DIGEST}" --quiet --delete-tags || true
+            fi
+          done
+
+      - name: Deploy to Cloud Run
+        id: deploy
+        uses: google-github-actions/deploy-cloudrun@33553064113a37d688aa6937bacbdc481580be17 # v2.7.0
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+          service: ${{ steps.prep.outputs.service }}
+          region: ${{ env.REGION }}
+          image: ${{ steps.prep.outputs.image }}
+          flags: --allow-unauthenticated
+
+      - name: Show service URL
+        run: echo "${{ steps.deploy.outputs.url }}"
+
+# Required GitHub secrets:
+# - GCP_PROJECT_ID — GCP project ID (terraform output)
+# - CLOUD_RUN_REGION — Cloud Run region (terraform output)
+# - CLOUD_RUN_SERVICE_NAME — Cloud Run service name (terraform output)
+# - CLOUD_RUN_SERVICE_ACCOUNT — Service account email (terraform output)
+# - GCP_WORKLOAD_IDENTITY_PROVIDER — WIF provider resource name (terraform output)
+# - ARTIFACT_REGISTRY_REPOSITORY — Artifact Registry repository URL (terraform output)
+# - ARTIFACT_REGISTRY_IMAGE_NAME — Artifact Registry image name when the repository secret omits it
