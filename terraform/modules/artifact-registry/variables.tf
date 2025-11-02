@@ -1,21 +1,26 @@
 variable "project_id" {
-  description = "The GCP project ID."
+  description = "The Google Cloud project ID."
   type        = string
 }
 
-variable "region" {
-  description = "The GCP region for the repository."
+variable "location" {
+  description = "Region where the Artifact Registry repository will be created."
   type        = string
 }
 
-variable "repository" {
-  description = "The name of the Artifact Registry repository."
+variable "repository_id" {
+  description = "Identifier for the Artifact Registry repository."
   type        = string
-  default     = "fastapi"
+}
+
+variable "description" {
+  description = "Optional description for the repository."
+  type        = string
+  default     = "Docker images for Cloud Run"
 }
 
 variable "labels" {
-  description = "A map of labels to apply to all created resources."
+  description = "Labels to apply to the repository."
   type        = map(string)
   default     = {}
 }

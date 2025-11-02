@@ -8,9 +8,9 @@ resource "google_cloud_run_v2_service" "default" {
   launch_stage = "GA"
 
   template {
-    service_account       = var.service_account_email
-    timeout               = "${var.timeout_seconds}s"
-    container_concurrency = var.concurrency
+    service_account                  = var.service_account_email
+    timeout                          = "${var.timeout_seconds}s"
+    max_instance_request_concurrency = var.concurrency
 
     annotations = {
       "run.googleapis.com/cpu-throttling" = false
@@ -67,7 +67,8 @@ resource "google_cloud_run_v2_service" "default" {
 
   lifecycle {
     ignore_changes = [
-      labels, # Avoid issues with labels managed by Google
+      labels,                                # Avoid issues with labels managed by Google
+      template[0].containers[0].image,       # Image rollouts handled by CI/CD pipeline
     ]
   }
 }

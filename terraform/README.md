@@ -1,13 +1,13 @@
 # Terraform IaC for FastAPI on Cloud Run
 
-This Terraform setup deploys a containerized FastAPI application to Google Cloud Run, with supporting resources like Firestore, Secret Manager, and an optional Artifact Registry and Cloud Scheduler.
+This Terraform setup deploys a containerized FastAPI application to Google Cloud Run, with supporting resources like Firestore, Secret Manager, and an optional Cloud Scheduler.
 
 ## Prerequisites
 
 1.  **Install Tools**:
     *   [Terraform](https://learn.hashicorp.com/tutorials/terraform/install-cli) (version >= 1.13)
     *   [Google Cloud SDK](https://cloud.google.com/sdk/docs/install) (`gcloud`)
-dekh 
+ 
 2.  **GCP Project**:
     *   Create a new Google Cloud Project or use an existing one.
     *   Ensure **billing is enabled** for your project.
@@ -34,14 +34,16 @@ This project includes an interactive script to simplify deployment.
 Copy the example variables file:
 
 ```bash
-cp terraform/example.tfvars terraform/my.tfvars
+cp terraform/example.tfvars terraform/terraform.tfvars
 ```
 
-Now, edit `terraform/my.tfvars` and replace the placeholder values:
+Now, edit `terraform/terraform.tfvars` and replace the placeholder values:
 
 *   `project_id`: Your GCP project ID.
-*   `image`: The full URL of the Docker image you want to deploy. This image must exist in Artifact Registry or another container registry that your project has access to.
+*   `image`: The container image URL Cloud Run should run (for example `asia-south1-docker.pkg.dev/<project>/<repository>/<service>:tag`). If you deploy from source, Terraform still needs a value but it will be replaced on the next GitHub Action run.
 *   `secrets`: Update the placeholder values for secrets that will be created in Secret Manager.
+*   Set `create_artifact_registry = true`, optionally override `artifact_registry_location`/`artifact_registry_repository`, and point the `image` variable at the tag you plan to push if you want Terraform to provision an Artifact Registry repository for Docker images.
+*   Set `create_workload_identity = true` and provide `github_repository = "owner/repo"` (for example, `yourname/your-fastapi-project`) if you want Terraform to configure Workload Identity Federation for GitHub Actions. The apply step will output the Workload Identity Provider resource name you feed into the GitHub secret `GCP_WORKLOAD_IDENTITY_PROVIDER`.
 *   Review other variables like `region`, `service_name`, etc., and adjust as needed.
 
 ### 2. Run the Interactive Script
@@ -73,10 +75,10 @@ If you prefer to run Terraform commands manually, `cd` into the `terraform` dire
 terraform init
 
 # Plan the deployment
-terraform plan -var-file="my.tfvars"
+terraform plan -var-file="terraform.tfvars"
 
 # Apply the changes
-terraform apply -var-file="my.tfvars"
+terraform apply -var-file="terraform.tfvars"
 ```
 
 ## Optional: GCS Remote State
@@ -101,6 +103,48 @@ For collaboration or production environments, it is highly recommended to use a 
 
 To deploy a new version of your application:
 
-1.  Build and push your new container image to Artifact Registry (or your chosen registry).
-2.  Update the `image` variable in your `.tfvars` file to point to the new image tag.
-3.  Run the script or `terraform apply` again. Terraform will detect the change and deploy a new revision of the Cloud Run service.
+Deployments are handled by `.github/workflows/deploy-to-cloudrun.yml`, which authenticates via Workload Identity Federation, builds and pushes a container image to Artifact Registry, and calls the `google-github-actions/deploy-cloudrun` action on pushes to `main`. Ensure the required GitHub secrets (`GCP_PROJECT_ID`, `CLOUD_RUN_REGION`, `CLOUD_RUN_SERVICE_NAME`, `CLOUD_RUN_SERVICE_ACCOUNT`, `GCP_WORKLOAD_IDENTITY_PROVIDER`, `ARTIFACT_REGISTRY_REPOSITORY`) are configured, push your changes, and a new revision will roll out automatically. If you need to redeploy manually, you can still use `gcloud run deploy --image` with the tag you published.
+
+## Custom Domains
+
+Classic Cloud Run domain mappings are only available in specific regions. Because this project deploys to `asia-south1`, you **cannot** attach a custom domain through Cloud Run itself. Use one of the following approaches instead:
+
+1. Keep Cloud Run on its generated URL (e.g. `https://<service>-<hash>.a.run.app`) and create DNS records in your provider (Cloudflare etc..) that point to a Cloudflare Worker, reverse proxy, or load balancer which forwards traffic to Cloud Run.
+2. If you need Cloud Run–managed certificates, redeploy the service in a supported region (such as `us-central1`) and enable domain mappings there.
+
+For the current setup, manage DNS directly in Cloudflare and proxy requests to the Cloud Run URL—no Terraform changes are required.
+
+### Using a Cloudflare Worker Proxy (asia-south1 example)
+
+Because Cloud Run in `asia-south1` does not support custom domain mappings, you can front the service with a Cloudflare Worker:
+
+1. **Create a Worker** and paste the following code:
+   ```js
+   export default {
+     async fetch(request, env) {
+       const backend = new URL(env.BACKEND_URL);
+       const incoming = new URL(request.url);
+       const target = new URL(incoming.pathname + incoming.search, backend);
+       target.protocol = 'https:';
+
+       const init = {
+         method: request.method,
+         headers: new Headers(request.headers),
+         body: request.body,
+         redirect: 'manual',
+       };
+
+       init.headers.set('Host', backend.host);
+
+       return fetch(target.toString(), init);
+     },
+   };
+   ```
+
+2. **Add a Worker variable** named `BACKEND_URL` with the Cloud Run URL (for example `https://your-project-q3xoi3srwq-el.a.run.app`) and deploy the Worker.
+
+3. **Configure a route** under *Workers → Triggers → Routes* (e.g. `api.your-project.com/*`).
+
+4. **Create a proxied DNS record** in Cloudflare for `api.your-project.com` (CNAME to `your-project.com`, orange-cloud enabled).
+
+Traffic to `https://api.your-project.com` now terminates at Cloudflare, the Worker forwards it to Cloud Run with the correct host header, and the response is proxied back to the client. No changes to Terraform are required for this setup.

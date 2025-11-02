@@ -19,7 +19,16 @@ resource "google_project_iam_member" "core_roles" {
   member  = google_service_account.service_account.member
 }
 
-# Optional role for reading from Artifact Registry
+# Optional role for Cloud Scheduler to create OIDC tokens
+resource "google_project_iam_member" "scheduler_token_creator" {
+  count = var.enable_scheduler_token_creator ? 1 : 0
+
+  project = var.project_id
+  role    = "roles/iam.serviceAccountTokenCreator"
+  member  = google_service_account.service_account.member
+}
+
+# Optional role for pulling images from Artifact Registry
 resource "google_project_iam_member" "artifact_registry_reader" {
   count = var.enable_artifact_registry_reader ? 1 : 0
 
@@ -28,11 +37,18 @@ resource "google_project_iam_member" "artifact_registry_reader" {
   member  = google_service_account.service_account.member
 }
 
-# Optional role for Cloud Scheduler to create OIDC tokens
-resource "google_project_iam_member" "scheduler_token_creator" {
-  count = var.enable_scheduler_token_creator ? 1 : 0
+resource "google_project_iam_member" "artifact_registry_writer" {
+  count = var.enable_artifact_registry_writer ? 1 : 0
 
   project = var.project_id
-  role    = "roles/iam.serviceAccountTokenCreator"
+  role    = "roles/artifactregistry.writer"
+  member  = google_service_account.service_account.member
+}
+
+resource "google_project_iam_member" "artifact_registry_repo_admin" {
+  count = var.enable_artifact_registry_repo_admin ? 1 : 0
+
+  project = var.project_id
+  role    = "roles/artifactregistry.repoAdmin"
   member  = google_service_account.service_account.member
 }

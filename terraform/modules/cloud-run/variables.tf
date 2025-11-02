@@ -87,5 +87,4 @@ variable "timeout_seconds" {
 variable "container_port" {
   description = "The port the container listens on."
   type        = number
-  default     = 8080
 }

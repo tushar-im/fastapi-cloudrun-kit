@@ -12,6 +12,4 @@ resource "google_cloud_scheduler_job" "job" {
       service_account_email = var.service_account_email
     }
   }
-
-  labels = var.labels
 }

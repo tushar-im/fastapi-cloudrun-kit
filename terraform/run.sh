@@ -13,7 +13,7 @@ print_usage() {
   echo "    apply     : Runs 'terraform apply'."
   echo "    destroy   : Runs 'terraform destroy'."
   echo "  - Options:"
-  echo "    -f <file> : Specify a .tfvars file to use (e.g., my.tfvars)."
+  echo "    -f <file> : Specify a .tfvars file to use (e.g., terraform.tfvars)."
 }
 
 check_deps() {
@@ -57,7 +57,7 @@ cd terraform
 
 # Default values
 TF_COMMAND=""
-TFVARS_FILE="my.tfvars"
+TFVARS_FILE="terraform.tfvars"
 
 # Parse command-line arguments
 while getopts ":f:" opt; do
@@ -119,8 +119,12 @@ if [ -z "$TF_COMMAND" ]; then
     echo "--- Applying Terraform ---"
     terraform apply -var-file="$TFVARS_FILE" -auto-approve
     echo "--- Apply complete! ---"
-    URL=$(terraform output -raw cloud_run_url)
-    echo "Cloud Run Service URL: $URL"
+    URL=$(terraform output -raw CLOUD_RUN_URL 2>/dev/null || terraform output -raw cloud_run_url 2>/dev/null || true)
+    if [ -n "$URL" ]; then
+      echo "Cloud Run Service URL: $URL"
+    fi
+    echo "Copy the latest Terraform outputs for GitHub Action secrets:"
+    terraform output | sed 's/^/  /'
   else
     echo "Apply cancelled."
   fi
@@ -145,8 +149,12 @@ else
 
   if [ "$TF_COMMAND" = "apply" ]; then
     echo "--- Apply complete! ---"
-    URL=$(terraform output -raw cloud_run_url)
-    echo "Cloud Run Service URL: $URL"
+    URL=$(terraform output -raw CLOUD_RUN_URL 2>/dev/null || terraform output -raw cloud_run_url 2>/dev/null || true)
+    if [ -n "$URL" ]; then
+      echo "Cloud Run Service URL: $URL"
+    fi
+    echo "Terraform outputs:"
+    terraform output | sed 's/^/  /'
   fi
 fi
 
